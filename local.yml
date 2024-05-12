@@ -1,0 +1,72 @@
+---
+- name: Setup NVIDIA Drivers, Docker with GPU support, Portainer, and Python 3.11 on Ubuntu 24
+  hosts: ubuntu24
+  become: yes
+
+  tasks:
+    - name: Install necessary packages
+      apt:
+        name: "{{ item }}"
+        state: present
+        update_cache: yes
+      loop:
+        - software-properties-common
+        - ubuntu-drivers-common
+
+    - name: Detect and install the best match NVIDIA driver
+      command: ubuntu-drivers install
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Add Docker official GPG key
+      ansible.builtin.apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository
+      ansible.builtin.apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_lsb.codename }} stable
+        state: present
+
+    - name: Install Docker Engine
+      apt:
+        name: docker-ce
+        state: latest
+        update_cache: yes
+
+    - name: Install Docker Compose
+      get_url:
+        url: https://github.com/docker/compose/releases/download/1.29.2/docker-compose-{{ ansible_system }}-{{ ansible_architecture }}
+        dest: /usr/local/bin/docker-compose
+        mode: 'u+x,g+x'
+
+    - name: Install NVIDIA Container Toolkit
+      shell: |
+        distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+        curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+        curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+        apt-get update && sudo apt-get install -y nvidia-container-toolkit
+        systemctl restart docker
+
+    - name: Install Python 3.11
+      apt:
+        name: python3.11
+        state: present
+        update_cache: yes
+
+    - name: Set Python 3.11 as the default python3
+      alternatives:
+        name: python3
+        link: /usr/bin/python3
+        path: /usr/bin/python3.11
+
+    - name: Install Portainer
+      docker_container:
+        name: portainer
+        image: portainer/portainer-ce
+        state: started
+        restart_policy: always
+        ports:
+          - "9000:9000"
+        volumes:
+          - "/var/run/docker.sock:/var/run/docker.sock"
+          - "portainer_data:/data"
